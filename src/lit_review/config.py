@@ -54,8 +54,9 @@ S2_BASE: str = "https://api.semanticscholar.org/graph/v1"
 HEADERS: dict[str, str] = {"x-api-key": S2_API_KEY} if S2_API_KEY else {}
 
 # ---------------------------------------------------------------------------
-# OpenRouter
+# LLM provider (openrouter | apple_fm)
 # ---------------------------------------------------------------------------
+LLM_PROVIDER: str = os.getenv("LIT_REVIEW_LLM_PROVIDER", "openrouter")
 OPENROUTER_MODEL: str = os.getenv(
     "LIT_REVIEW_OPENROUTER_MODEL", "deepseek/deepseek-v4.1-flash"
 )

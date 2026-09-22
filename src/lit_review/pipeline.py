@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 
 import httpx
-import openrouter
 from rich import console as csl
 
 from lit_review import (
@@ -14,6 +13,7 @@ from lit_review import (
     database,
     expansion,
     graph,
+    llm,
     query_optimizer,
     ranking,
 )
@@ -27,27 +27,31 @@ async def main(
     run_id: str | None = None,
     interactive_optimizer: bool = True,
     export_vault: bool = True,
+    llm_provider: str | None = None,
 ) -> str:
     """Full end-to-end run. Returns the run_id.
 
-    Uses LiquidAI/LFM2.5-ColBERT-350M for late-interaction ranking.
+    LLM backend via `llm_provider` or `LIT_REVIEW_LLM_PROVIDER`
+    (default: openrouter). Use `apple_fm` for on-device Apple Intelligence.
+    Late-interaction ranking uses LiquidAI/LFM2.5-ColBERT-350M.
     """
     run_id = run_id or str(uuid.uuid4())[:8]
-    console.rule(f"[bold]lit-review run {run_id}")
+    provider = llm_provider or config.LLM_PROVIDER
+    console.rule(f"[bold]lit-review run {run_id}[/]  [dim](llm={provider})[/]")
 
     http = httpx.AsyncClient(timeout=60.0)
     db = await database.get_db()
-    router = openrouter.OpenRouter(api_key=config.OPENROUTER_API_KEY)
+    model = llm.get_llm_client(provider)
 
     try:
         await database.create_run(db, run_id, raw_query)
         s2 = client.S2Client(http)
 
-        # Query optimiser
+        # Query optimiser (provider-agnostic)
         console.log("Optimising query...")
         opt_query, meta = await query_optimizer.optimize_query(
             raw_query,
-            router,
+            model,
             interactive=interactive_optimizer,
         )
         await database.update_run(
@@ -77,19 +81,22 @@ async def main(
 
         console.log(f"Got {len(seeds)} seeds")
 
+        # Prefer HyDE pseudo-abstract for embedding stages when available
+        embed_query = (meta.get("hyde_pseudo_abstract") or "").strip() or opt_query
+
         # Expansion (priority queue + SPECTER prune)
         dense = ranking.DenseRanker()
         candidates = await expansion.expand_graph(
             s2,
             db,
             seeds,
-            opt_query,
+            embed_query,
             dense_ranker=dense,
         )
         console.log(f"Expansion produced {len(candidates)} candidates")
 
         # Late-interaction re-ranking
-        late = ranking.LateInteractionRanker()  # defaults to LiquidAI/LFM2.5-ColBERT-350M
+        late = ranking.LateInteractionRanker()
         placeholders = ",".join("?" * len(candidates)) if candidates else "''"
         async with db.execute(
             f"""
@@ -104,7 +111,7 @@ async def main(
         if rows and late.available:
             ids = [r[0] for r in rows]
             abstracts = [r[1] for r in rows]
-            ranked = late.score(opt_query, abstracts, top_k=config.MAX_CORE_PAPERS)
+            ranked = late.score(embed_query, abstracts, top_k=config.MAX_CORE_PAPERS)
             final_ids = [ids[i] for i, _ in ranked]
             scores = {ids[i]: s for i, s in ranked}
         else:
@@ -129,7 +136,4 @@ async def main(
     finally:
         await http.aclose()
         await db.close()
-        if hasattr(router, "aclose"):
-            await router.aclose()
-        elif hasattr(router, "close"):
-            router.close()
+        await model.aclose()
