@@ -1,0 +1,84 @@
+[project]
+name = "lit-review"
+version = "0.1.0"
+description = "Async literature-review tool: Semantic Scholar citation graphs + late-interaction ranking + Obsidian export"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "aiosqlite>=0.20",
+    "networkx>=3.2",
+    "sentence-transformers>=3.0",
+    "torch>=2.2",
+    "openrouter>=0.1",
+    "python-dotenv>=1.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "tqdm>=4.66",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+lit-review = "lit_review.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lit_review"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+# (https://google.github.io/styleguide/pyguide.html)
+[tool.ruff]
+include = ["*.py"]
+extend-exclude = ["*.md", "*.json"]
+respect-gitignore = true
+line-length = 80  # Section 3.1
+
+[tool.ruff.format]
+quote-style = "double"  # Google style uses double quotes for strings
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",  # Standard pycodestyle and pyflakes
+    "D",            # pydocstyle (Section 3.8)
+    "I",            # isort (Section 3.13)
+    "N",            # pep8-naming (Section 3.16)
+    "C4",           # flake8-comprehensions (Section 2.7, 2.8)
+    "PL",           # Pylint (Section 2.1, 2.5)
+    "UP",           # pyupgrade (Modern Python)
+    "TD",           # TODO Comments (Section 3.12)
+    "B",            # flake8-bugbear (Section 2.12 Default Args)
+    "ICN",          # flake8-import-conventions (Section 2.2)
+    "PERF",         # Perflint (Section 2.8 Default Iterators)
+    "BLE", "TRY",   # Exceptions (Section 2.4)
+    "SIM",          # True/False & Context Managers (Sections 2.14, 3.11)
+    "G", "LOG",     # Logging (Section 3.10.1)
+    "FLY", "ISC",   # Strings (Section 3.10)
+    "EXE",          # Shebangs (Section 3.7)
+    "ANN","TC",     # Type Annotations (Sections 2.21, 3.19)
+]
+
+ignore = [
+    "ANN204",  # No need to annotate return of __init__ (Section 3.19.1)
+    "TRY003",  # Allow custom exception messages at runtime
+    "TD003",   # Don't require issue links for TODOs
+]
+
+[tool.ruff.lint.pylint]
+max-positional-args = 5
+max-args = 15
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
