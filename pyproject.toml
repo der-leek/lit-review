@@ -10,12 +10,13 @@ dependencies = [
     "networkx>=3.2",
     "sentence-transformers>=3.0",
     "torch>=2.2",
-    "openrouter>=0.1",
     "python-dotenv>=1.0",
     "typer>=0.12",
     "rich>=13.7",
     "tqdm>=4.66",
     "numpy>=1.26",
+    "peft>=0.21.0",
+    "openai>=3.19.2",
 ]
 
 [project.optional-dependencies]

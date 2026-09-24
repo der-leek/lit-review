@@ -1,4 +1,11 @@
-"""Dense (SPECTER) and late-interaction (LFM2.5-ColBERT) ranking helpers."""
+"""Late-interaction (LFM2.5-ColBERT) ranking helpers.
+
+Relevance is driven by token-level MaxSim between the user's detailed intent
+and each paper's abstract (falling back to title when no abstract is present).
+SPECTER dense embeddings are no longer used for expansion or pruning — the
+Semantic Scholar API already surfaces citation-based influence signals, and
+MaxSim is a stronger query↔content match for the expansion priority queue.
+"""
 
 from __future__ import annotations
 
@@ -25,42 +32,26 @@ def _get_device() -> str:
     return "cpu"
 
 
-class DenseRanker:
-    """SPECTER2 dense embeddings for cheap pruning."""
+def paper_text_for_scoring(paper: dict) -> str:
+    """Return the best available text for MaxSim scoring.
 
-    def __init__(self, model_name: str = config.SPECTER_MODEL, device: str | None = None):
-        self.device = device or _get_device()
-        console.log(f"Loading dense model {model_name} on {self.device}")
-        self.model = st.SentenceTransformer(model_name, device=self.device)
+    Prefer a non-empty abstract; fall back to the title when the abstract is
+    missing so papers without abstracts still receive a relevance signal.
+    """
+    abstract = (paper.get("abstract") or "").strip()
+    if abstract:
+        return abstract
+    title = (paper.get("title") or "").strip()
+    return title
 
-    def encode_query(self, text: str) -> np.ndarray:
-        emb = self.model.encode([text], normalize_embeddings=True)
-        return np.asarray(emb[0], dtype=np.float32)
 
-    def encode_papers(self, abstracts: Sequence[str]) -> np.ndarray:
-        if not abstracts:
-            if not (embedding_dim := self.model.get_embedding_dimension()):
-                raise ValueError()
+def maxsim_priority(maxsim: float, influential_citation_count: int | None) -> float:
+    """Combine MaxSim relevance with citation influence for the priority queue.
 
-            return np.zeros((0, embedding_dim), dtype=np.float32)
-
-        emb = self.model.encode(
-            list(abstracts),
-            normalize_embeddings=True,
-            batch_size=32,
-            show_progress_bar=len(abstracts) > 64,
-        )
-        return np.asarray(emb, dtype=np.float32)
-
-    def score(
-        self,
-        query_emb: np.ndarray,
-        paper_embs: np.ndarray,
-    ) -> np.ndarray:
-        """Cosine similarity (embeddings are already L2-normalised)."""
-        if paper_embs.size == 0:
-            return np.array([], dtype=np.float32)
-        return paper_embs @ query_emb
+    priority = MaxSim * max(1, influentialCitationCount)
+    """
+    influence = max(1, int(influential_citation_count or 0))
+    return float(maxsim) * float(influence)
 
 
 class LateInteractionRanker:
@@ -97,22 +88,22 @@ class LateInteractionRanker:
     def score(
         self,
         query: str,
-        abstracts: Sequence[str],
+        texts: Sequence[str],
         top_k: int = 500,
     ) -> list[tuple[int, float]]:
-        """Return list of (index_into_abstracts, score) sorted descending.
+        """Return list of (index_into_texts, score) sorted descending.
 
         Uses MaxSim-style scoring when the MultiVectorEncoder API supports it;
         otherwise falls back to a mean-pool approximation.
         """
-        if not self.model or not abstracts:
-            return [(i, 0.0) for i in range(min(len(abstracts), top_k))]
+        if not self.model or not texts:
+            return [(i, 0.0) for i in range(min(len(texts), top_k))]
 
         try:
             # Encode query and documents (token-level multi-vectors)
             q_emb = self.model.encode([query], batch_size=1)
             d_embs = self.model.encode(
-                list(abstracts), batch_size=16, show_progress_bar=True
+                list(texts), batch_size=16, show_progress_bar=False
             )
 
             scores: list[tuple[int, float]] = []
@@ -133,13 +124,11 @@ class LateInteractionRanker:
             return scores[:top_k]
         except Exception as exc:
             console.log(f"[yellow]Late-interaction scoring failed: {exc}[/]")
-            return [(i, 0.0) for i in range(min(len(abstracts), top_k))]
+            return [(i, 0.0) for i in range(min(len(texts), top_k))]
 
-
-def combine_dense_and_influence(
-    dense_relevance_scores: np.ndarray,
-    influential_counts: Sequence[int],
-) -> np.ndarray:
-    """Relevance × log(1 + influential citations)."""
-    influence = np.asarray(influential_counts, dtype=np.float32)
-    return dense_relevance_scores * np.log1p(influence + 1.0)
+    def score_one(self, query: str, text: str) -> float:
+        """Return the MaxSim score of a single text against the query."""
+        if not text.strip():
+            return 0.0
+        ranked = self.score(query, [text], top_k=1)
+        return ranked[0][1] if ranked else 0.0

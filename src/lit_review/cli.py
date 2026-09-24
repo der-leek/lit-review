@@ -44,8 +44,25 @@ def run(
         "--llm",
         help="LLM provider: openrouter (default) or apple_fm",
     ),
+    seeds: str | None = typer.Option(
+        None,
+        "--seeds",
+        help=(
+            "Space-delimited Semantic Scholar paper IDs to use as the three "
+            "initial seeds. When set, the LLM only elicits a rich intent "
+            "(no automated search); the supplied papers are hydrated, shown "
+            "for confirmation, then expanded and ranked."
+        ),
+    ),
 ) -> None:
     """Run a full literature-review pipeline (uses LiquidAI/LFM2.5-ColBERT-350M)."""
+    seed_ids: list[str] | None = None
+    if seeds is not None:
+        seed_ids = [s.strip() for s in seeds.split() if s.strip()]
+        if not seed_ids:
+            console.print("[red]--seeds was provided but no paper IDs were parsed.[/]")
+            raise typer.Exit(code=1)
+
     asyncio.run(
         pipeline.main(
             query,
@@ -53,6 +70,7 @@ def run(
             interactive_optimizer=not no_interactive,
             export_vault=not no_vault,
             llm_provider=llm,
+            seed_ids=seed_ids,
         )
     )
 

@@ -12,15 +12,52 @@ Usage
 
 from __future__ import annotations
 
+import contextlib
+import importlib
 import os
+import pathlib
+import sys
+from typing import Any
 
-from lit_review.llm import apple_fm, base, openrouter
+from lit_review.llm import base
+
+_IMPORTED_MODULES: set[str] = set()
+
+
+def _provider_modules() -> list[str]:
+    """Return dotted module names for every `.py` in this package."""
+    pkg_dir = pathlib.Path(__file__).parent
+    modules: list[str] = []
+    for path in sorted(pkg_dir.glob("*.py")):
+        if path.name in ("__init__.py",):
+            continue
+        modules.append(f"{__name__}.{path.stem}")
+    return modules
+
+
+def _ensure_providers_loaded() -> None:
+    """Import every provider module once; skip modules that already ran.
+
+    Optional backends (e.g. `apple_fm` needing `apple-fm-sdk`) are skipped on
+    `ModuleNotFoundError`, so a missing optional dependency never breaks the
+    default path. Each module's `__init_subclass__` self-registers in
+    `BaseLLMClient._registry`.
+    """
+    for module_name in _provider_modules():
+        if module_name in _IMPORTED_MODULES:
+            continue
+        _IMPORTED_MODULES.add(module_name)
+        if module_name in sys.modules:
+            continue
+
+        with contextlib.suppress(ModuleNotFoundError):
+            importlib.import_module(module_name)
 
 
 def get_llm_client(
     provider: str | None = None,
-    **kwargs: str,
-) -> base.LLMClient:
+    **kwargs: Any,
+) -> base.BaseLLMClient:
     """Factory for LLM backends.
 
     Args:
@@ -30,22 +67,28 @@ def get_llm_client(
     """
     name = (provider or os.getenv("LIT_REVIEW_LLM_PROVIDER") or "openrouter").lower()
 
-    if name in ("openrouter", "or"):
-        return openrouter.OpenRouterClient(**kwargs)
+    cls = base.BaseLLMClient._registry.get(name)
+    if cls is None:
+        # Cold start (or the name's module wasn't imported yet): scan once.
+        _ensure_providers_loaded()
+        cls = base.BaseLLMClient._registry.get(name)
 
-    if name in ("apple_fm", "apple", "fm", "foundation"):
-        return apple_fm.AppleFMClient(**kwargs)
+    if cls is None:
+        supported = ", ".join(sorted(base.BaseLLMClient._registry))
+        raise ValueError(f"Unknown LLM provider {name!r}. Supported: {supported}")
 
-    raise ValueError(f"Unknown LLM provider {name!r}. Supported: openrouter, apple_fm")
+    return cls(**kwargs)
 
 
-# Lazy re-exports so `from lit_review.llm import OpenRouterClient` works
-def __getattr__(
-    name: str,
-) -> type[openrouter.OpenRouterClient] | type[apple_fm.AppleFMClient]:
-    if name == "OpenRouterClient":
-        return openrouter.OpenRouterClient
-    if name == "AppleFMClient":
-        return apple_fm.AppleFMClient
-
+# Lazy re-exports so `from lit_review.llm import OpenAIClient` works.
+def __getattr__(name: str) -> type[Any]:
+    for cls in base.BaseLLMClient._registry.values():
+        if cls.__name__ == name:
+            return cls
+    # Fall back to scanning provider modules (e.g. for classes declared in a
+    # file that hasn't been imported yet).
+    _ensure_providers_loaded()
+    for cls in base.BaseLLMClient._registry.values():
+        if cls.__name__ == name:
+            return cls
     raise AttributeError(name)

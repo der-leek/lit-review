@@ -92,6 +92,22 @@ async def create_run(
     await db.commit()
 
 
+async def get_run(
+    db: aiosqlite.Connection,
+    run_id: str,
+) -> dict[str, Any] | None:
+    """Return a run's metadata row, or None when it doesn't exist."""
+    async with db.execute(
+        "SELECT * FROM runs WHERE run_id = ?",
+        (run_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    cols = [d[0] for d in cur.description]
+    return dict(zip(cols, row, strict=False))
+
+
 async def update_run(
     db: aiosqlite.Connection,
     run_id: str,
