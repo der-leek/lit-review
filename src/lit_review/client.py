@@ -48,6 +48,7 @@ class S2Client:
         json: Any = None,
         max_retries: int = 30,
         graceful: bool = False,
+        delay: int = 1,
     ) -> Any:
         async with self._sem:
             await self._throttle()
@@ -62,9 +63,8 @@ class S2Client:
                     timeout=60.0,
                 )
                 if resp.status_code == _RATE_LIMITED:
-                    wait = 1
-                    console.log(f"[yellow]S2 429 – sleeping {wait:.1f}s[/]")
-                    await asyncio.sleep(wait)
+                    console.log("[yellow]S2 429 – Retrying...[/]")
+                    await asyncio.sleep(delay)
                     continue
                 resp.raise_for_status()
                 return resp.json()
@@ -160,8 +160,7 @@ class S2Client:
         self,
         ids: list[str],
         fields: str = (
-            "paperId,title,abstract,year,citationCount,"
-            "influentialCitationCount"
+            "paperId,title,abstract,year,citationCount,influentialCitationCount"
         ),
         *,
         graceful: bool = False,

@@ -145,7 +145,9 @@ async def expand_graph(
                 maxsim = float(score_map.get(i, 0.0))
                 infl = paper.get("influentialCitationCount", 0)
                 pri = ranking.maxsim_priority(maxsim, infl)
-                await scored_out.put(ScoredPaper(paper=paper, maxsim=maxsim, priority=pri))
+                await scored_out.put(
+                    ScoredPaper(paper=paper, maxsim=maxsim, priority=pri)
+                )
             batch = []
 
         while not stop_event.is_set():
@@ -191,14 +193,10 @@ async def expand_graph(
             total_scored += 1
             core_candidates.append(paper_id)
             await database.upsert_papers(db, [paper], depth=0)
-            await database.save_queue_item(
-                db, paper_id, -item.priority, 0, "pending"
-            )
+            await database.save_queue_item(db, paper_id, -item.priority, 0, "pending")
 
             async with queue_lock:
-                heapq.heappush(
-                    priority_queue, QueueItem(-item.priority, paper_id)
-                )
+                heapq.heappush(priority_queue, QueueItem(-item.priority, paper_id))
 
             if total_scored >= max_total:
                 stop_event.set()
@@ -219,11 +217,7 @@ async def expand_graph(
                 idle_rounds += 1
                 # Exit when nothing is left to expand and the score pipeline
                 # has drained (or has been idle long enough after seeds).
-                if (
-                    score_buffer.empty()
-                    and scored_out.empty()
-                    and idle_rounds > 50
-                ):
+                if score_buffer.empty() and scored_out.empty() and idle_rounds > 50:
                     stop_event.set()
                     break
                 await asyncio.sleep(0.1)
@@ -278,9 +272,7 @@ async def expand_graph(
             if not new_ids:
                 continue
 
-            fields = (
-                "paperId,title,abstract,year,citationCount,influentialCitationCount"
-            )
+            fields = "paperId,title,abstract,year,citationCount,influentialCitationCount"
             hydrated = await s2.batch_papers(new_ids, fields=fields, graceful=True)
             for paper in hydrated or []:
                 if not paper.get("paperId"):
@@ -294,8 +286,8 @@ async def expand_graph(
                 await score_buffer.put(paper)
 
             console.log(
-                f"Scored {total_scored:>6} | queue {len(priority_queue):>4} | "
-                f"buffer {score_buffer.qsize():>3} | candidates {len(core_candidates):>5}"
+                f"Candidates {len(core_candidates):>5} | queue {len(priority_queue):>4} |"
+                f" buffer {score_buffer.qsize():>3}"
             )
 
     scorer_task = asyncio.create_task(scorer_worker(), name="maxsim-scorer")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import os
 import pathlib
 
@@ -24,8 +25,9 @@ OPENROUTER_API_KEY: str | None = os.getenv("OPENROUTER_API_KEY")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
+now = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
 DB_PATH: pathlib.Path = pathlib.Path(os.getenv("LIT_REVIEW_DB", "lit-review.db"))
-VAULT_DIR: pathlib.Path = pathlib.Path(os.getenv("LIT_REVIEW_VAULT", "vault"))
+VAULT_DIR: pathlib.Path = pathlib.Path(os.getenv("LIT_REVIEW_VAULT", f"vault-{now}"))
 
 # ---------------------------------------------------------------------------
 # Scale & expansion knobs
